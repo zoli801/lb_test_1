@@ -1,0 +1,1 @@
+Trigger public-source reconstruction for NeuroGolf 2026 on 2026-07-15.
