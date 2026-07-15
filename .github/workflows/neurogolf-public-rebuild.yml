@@ -1,0 +1,48 @@
+name: NeuroGolf public reconstruction
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  collect-public-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout trigger repository
+        uses: actions/checkout@v4
+
+      - name: Clone public NeuroGolf and ARC-GEN repositories
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/neurogolf-public
+          git clone --depth 1 https://github.com/MinseongS/neurogolf.git /tmp/neurogolf-public/minseong-neurogolf
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/google/ARC-GEN.git /tmp/neurogolf-public/arc-gen
+          git clone --depth 1 https://github.com/jahankazimi078/2026NeuroGolfChampionship.git /tmp/neurogolf-public/jahankazimi-neurogolf
+          git clone --depth 1 https://github.com/lljjcc426/NGC-work.git /tmp/neurogolf-public/ngc-work
+          git clone --depth 1 https://github.com/Utkarsh-Sinha0/NeruraGolf.git /tmp/neurogolf-public/utkarsh-neurogolf
+          git clone --depth 1 https://github.com/dai1107/neurogolf-2026.git /tmp/neurogolf-public/dai-neurogolf
+
+      - name: Package sources and inventory
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/neurogolf-artifact
+          for d in /tmp/neurogolf-public/*; do
+            find "$d" -type f | sort > "/tmp/neurogolf-artifact/$(basename "$d")-files.txt"
+          done
+          tar --exclude='.git' -czf /tmp/neurogolf-artifact/public-neurogolf-sources.tar.gz -C /tmp neurogolf-public
+          sha256sum /tmp/neurogolf-artifact/public-neurogolf-sources.tar.gz > /tmp/neurogolf-artifact/SHA256SUMS.txt
+          du -h /tmp/neurogolf-artifact/public-neurogolf-sources.tar.gz
+
+      - name: Upload reconstructed public sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogolf-public-sources
+          path: /tmp/neurogolf-artifact/
+          retention-days: 1
+          compression-level: 0
