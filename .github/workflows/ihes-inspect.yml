@@ -1,0 +1,50 @@
+name: IHES inspect public data
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and inspect public IHES resources
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/ihes/model /tmp/ihes/path /tmp/ihes/notebook
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/model-ihes-1780290207-e40960' -o /tmp/ihes/model.zip
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/ihes-path' -o /tmp/ihes/path.zip
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/kernels/pull/trydotatwo/cayleypy-2xt4-ihes-example' -o /tmp/ihes/notebook.json
+          unzip -q /tmp/ihes/model.zip -d /tmp/ihes/model
+          unzip -q /tmp/ihes/path.zip -d /tmp/ihes/path
+          echo '===== MODEL FILES ====='
+          find /tmp/ihes/model -maxdepth 3 -type f -printf '%P\t%s\n' | sort | head -200
+          echo '===== PATH FILES ====='
+          find /tmp/ihes/path -maxdepth 3 -type f -printf '%P\t%s\n' | sort | head -200
+          echo '===== PATH SAMPLES ====='
+          for f in $(find /tmp/ihes/path -type f | sort | head -5); do echo "--- $f"; head -3 "$f"; done
+          echo '===== NOTEBOOK JSON KEYS ====='
+          python - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('/tmp/ihes/notebook.json')
+          d=json.loads(p.read_text())
+          print(type(d), list(d)[:50])
+          def walk(x, prefix=''):
+              if isinstance(x, dict):
+                  for k,v in x.items():
+                      if k.lower() in {'source','script','code','kernelblob','blob','cells'}:
+                          s=str(v)
+                          print('FIELD',prefix+k,'LEN',len(s),'HEAD',s[:1000].replace('\n','\\n'))
+                      if len(prefix)<80: walk(v,prefix+k+'.')
+              elif isinstance(x,list):
+                  for i,v in enumerate(x[:30]): walk(v,prefix+str(i)+'.')
+          walk(d)
+          PY
+          echo '===== MODEL JSON HEADS ====='
+          for f in $(find /tmp/ihes/model -name '*.json' | sort | head -10); do echo "--- $f"; head -c 3000 "$f"; echo; done
