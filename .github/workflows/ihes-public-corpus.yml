@@ -1,0 +1,30 @@
+name: IHES public corpus
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone public CayleyPy result corpus
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/TryDotAtwo/cayleypy-beam-results.git /tmp/results
+          git clone --depth 1 https://github.com/Erlemar/cayley-puzzles.git /tmp/solver
+          mkdir -p /tmp/out
+          tar --exclude='.git' -czf /tmp/out/ihes-public-corpus.tar.gz -C /tmp results solver
+          find /tmp/results/data/ihes_cube -type f | sort > /tmp/out/inventory.txt
+          du -h /tmp/out/ihes-public-corpus.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ihes-public-corpus
+          path: /tmp/out/
+          retention-days: 1
+          compression-level: 0
