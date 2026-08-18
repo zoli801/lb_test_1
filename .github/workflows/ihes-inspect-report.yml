@@ -1,0 +1,72 @@
+name: IHES inspect report
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ihes-trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 1
+      - name: Build inspection report
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/ihes && mkdir -p /tmp/ihes/model /tmp/ihes/path
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/model-ihes-1780290207-e40960' -o /tmp/ihes/model.zip
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/ihes-path' -o /tmp/ihes/path.zip
+          curl -fL --retry 3 'https://www.kaggle.com/api/v1/kernels/pull/trydotatwo/cayleypy-2xt4-ihes-example' -o /tmp/ihes/notebook.json
+          unzip -q /tmp/ihes/model.zip -d /tmp/ihes/model
+          unzip -q /tmp/ihes/path.zip -d /tmp/ihes/path
+          python - <<'PY'
+          import json, pathlib, os, zipfile, hashlib
+          root=pathlib.Path('/tmp/ihes')
+          out=[]
+          out.append('MODEL FILES')
+          for p in sorted((root/'model').rglob('*')):
+              if p.is_file(): out.append(f'{p.relative_to(root/"model")}\t{p.stat().st_size}')
+          out.append('\nPATH FILES')
+          for p in sorted((root/'path').rglob('*')):
+              if p.is_file():
+                  out.append(f'{p.relative_to(root/"path")}\t{p.stat().st_size}')
+                  try:
+                      lines=p.read_text(errors='replace').splitlines()
+                      out.append(f'  lines={len(lines)} first={lines[:2]} last={lines[-2:]}')
+                  except Exception as e: out.append(f'  read_error={e!r}')
+          d=json.loads((root/'notebook.json').read_text())
+          out.append('\nNOTEBOOK TOP KEYS '+repr(list(d)))
+          def walk(x,prefix=''):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      q=prefix+k
+                      lk=k.lower()
+                      if lk in {'source','script','code','kernelblob','blob','cells'}:
+                          s=v if isinstance(v,str) else json.dumps(v,ensure_ascii=False)
+                          out.append(f'FIELD {q} TYPE={type(v).__name__} LEN={len(s)}\n{s[:12000]}')
+                      if len(prefix)<100: walk(v,q+'.')
+              elif isinstance(x,list):
+                  for i,v in enumerate(x[:100]): walk(v,prefix+str(i)+'.')
+          walk(d)
+          for p in sorted((root/'model').glob('*.json')):
+              out.append(f'\nMODEL JSON {p.name}\n'+p.read_text(errors='replace')[:20000])
+          pathlib.Path('ihes_inspection_report.txt').write_text('\n'.join(out))
+          PY
+      - name: Commit report to trigger branch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ihes_inspection_report.txt
+          git commit -m 'record IHES public-data inspection' || exit 0
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
