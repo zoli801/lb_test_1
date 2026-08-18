@@ -10,21 +10,59 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Clone public CayleyPy result corpus
+
+      - name: Clone public CayleyPy repositories
         run: |
           set -euxo pipefail
           git clone --depth 1 https://github.com/TryDotAtwo/cayleypy-beam-results.git /tmp/results
           git clone --depth 1 https://github.com/Erlemar/cayley-puzzles.git /tmp/solver
+
+      - name: Download public Kaggle IHES resources
+        shell: bash
+        run: |
+          set -uxo pipefail
+          mkdir -p /tmp/kaggle
+          : > /tmp/kaggle/status.txt
+          download() {
+            name="$1"; url="$2"
+            echo "=== $name ===" | tee -a /tmp/kaggle/status.txt
+            curl -fL --retry 3 --retry-delay 3 --connect-timeout 20 --max-time 1200 \
+              -D "/tmp/kaggle/${name}.headers" -o "/tmp/kaggle/${name}.bin" "$url"
+            rc=$?
+            echo "curl_rc=$rc" | tee -a /tmp/kaggle/status.txt
+            if [ -f "/tmp/kaggle/${name}.bin" ]; then
+              file "/tmp/kaggle/${name}.bin" | tee -a /tmp/kaggle/status.txt
+              stat -c 'bytes=%s' "/tmp/kaggle/${name}.bin" | tee -a /tmp/kaggle/status.txt
+              head -c 128 "/tmp/kaggle/${name}.bin" | xxd | head | tee -a /tmp/kaggle/status.txt || true
+            fi
+          }
+          download model_dataset 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/model-ihes-1780290207-e40960'
+          download path_dataset 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/ihes-path'
+          download notebook_pull 'https://www.kaggle.com/api/v1/kernels/pull/trydotatwo/cayleypy-2xt4-ihes-example'
+          download notebook_view 'https://www.kaggle.com/api/v1/kernels/view/trydotatwo/cayleypy-2xt4-ihes-example'
+          for f in /tmp/kaggle/*.bin; do
+            [ -e "$f" ] || continue
+            if file "$f" | grep -qi 'zip archive'; then
+              unzip -l "$f" > "${f%.bin}.listing.txt" || true
+            fi
+          done
+
+      - name: Package resources
+        shell: bash
+        run: |
+          set -euxo pipefail
           mkdir -p /tmp/out
           tar --exclude='.git' -czf /tmp/out/ihes-public-corpus.tar.gz -C /tmp results solver
+          cp -a /tmp/kaggle /tmp/out/kaggle
           find /tmp/results/data/ihes_cube -type f | sort > /tmp/out/inventory.txt
-          du -h /tmp/out/ihes-public-corpus.tar.gz
+          du -h /tmp/out/ihes-public-corpus.tar.gz /tmp/out/kaggle/* || true
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ihes-public-corpus
+          name: ihes-public-resources
           path: /tmp/out/
           retention-days: 1
           compression-level: 0
