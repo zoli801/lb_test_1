@@ -29,15 +29,18 @@ jobs:
           download() {
             name="$1"; url="$2"
             echo "=== $name ===" | tee -a /tmp/kaggle/status.txt
-            curl -fL --retry 3 --retry-delay 3 --connect-timeout 20 --max-time 1200 \
-              -D "/tmp/kaggle/${name}.headers" -o "/tmp/kaggle/${name}.bin" "$url"
-            rc=$?
+            rc=0
+            if ! curl -fL --retry 3 --retry-delay 3 --connect-timeout 20 --max-time 1200 \
+              -D "/tmp/kaggle/${name}.headers" -o "/tmp/kaggle/${name}.bin" "$url"; then
+              rc=$?
+            fi
             echo "curl_rc=$rc" | tee -a /tmp/kaggle/status.txt
             if [ -f "/tmp/kaggle/${name}.bin" ]; then
               file "/tmp/kaggle/${name}.bin" | tee -a /tmp/kaggle/status.txt
               stat -c 'bytes=%s' "/tmp/kaggle/${name}.bin" | tee -a /tmp/kaggle/status.txt
               head -c 128 "/tmp/kaggle/${name}.bin" | xxd | head | tee -a /tmp/kaggle/status.txt || true
             fi
+            return 0
           }
           download model_dataset 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/model-ihes-1780290207-e40960'
           download path_dataset 'https://www.kaggle.com/api/v1/datasets/download/arabidopsisthalian/ihes-path'
